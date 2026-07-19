@@ -1,99 +1,123 @@
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning)
 import tkinter as tk
 from tkinter import ttk
-import random
-import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
+import numpy as np
 
-# --- 1. LIVE SCIKIT-LEARN PIPELINE FOR ANOMALY DIAGNOSTICS ---
-# Historical logbook training data (Normal operating states vs. Valve Stiction)
-training_data = {
-    'Temperature': [78.5, 80.2, 82.1, 115.4, 119.8, 79.1, 114.5, 83.0],
-    'Pressure':    [1.2,  1.2,  1.3,  2.1,   2.4,   1.2,  2.0,   1.3],
-    'Steam_Flow':  [40.1, 41.5, 42.5, 95.2,  98.6,  39.8, 92.0,  44.0],
-    'Anomaly':     [0,    0,    0,    1,     1,     0,    1,     0]
-}
-df = pd.DataFrame(training_data)
-X = df[['Temperature', 'Pressure', 'Steam_Flow']]
-y = df['Anomaly']
+class DistillationHMI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("MIMO Distillation Control Room - Layer 3 HMI")
+        self.root.geometry("700x580")
+        self.root.configure(bg="#1e1e1e")
 
-# Train the model live at control room startup
-ml_model = RandomForestClassifier(n_estimators=10, random_state=42)
-ml_model.fit(X, y)
+        # Custom Styling
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("TLabel", background="#1e1e1e", foreground="#ffffff", font=("Arial", 11))
+        style.configure("TScale", background="#1e1e1e")
 
-# --- 2. GUI SYSTEM ARCHITECTURE ---
-root = tk.Tk()
-root.title("Distillation Column Control Room - Operator HMI")
-root.geometry("550x480")
-root.configure(bg="#2b2b2b")
+        # Title Header
+        title = tk.Label(root, text="DISTILLATION COLUMN TELEMETRY INTERFACE", 
+                         bg="#2d2d2d", fg="#00ff00", font=("Arial", 14, "bold"), pady=10)
+        title.pack(fill=tk.X)
 
-temp, pressure, steam, valve_fault = 78.5, 1.2, 40.0, False
+        # Main Layout Frame
+        main_frame = tk.Frame(root, bg="#1e1e1e", padx=20, pady=20)
+        main_frame.pack(fill=tk.BOTH, expand=True)
 
-def trigger_fault():
-    global valve_fault
-    valve_fault = True
-    fault_btn.config(text="⚠️ FAULT INJECTED", state="disabled", bg="#e74c3c")
+        # --- TELEMETRY CONTROL PANEL (OT Emulation Sliders) ---
+        slider_frame = tk.LabelFrame(main_frame, text=" Live Field Emulation Sliders ", 
+                                     bg="#1e1e1e", fg="#00ff00", font=("Arial", 10, "bold"), padx=15, pady=15)
+        slider_frame.grid(row=0, column=0, sticky="nsew", padx=10)
 
-def update_plant():
-    global temp, pressure, steam, valve_fault
-    
-    if valve_fault:
-        temp += 4.5
-        pressure += 0.15
-        steam = 95.0
-    else:
-        temp = max(75.0, min(85.0, temp + random.uniform(-0.5, 0.5)))
-        pressure = max(1.0, min(1.5, pressure + random.uniform(-0.02, 0.02)))
-        steam = max(38.0, min(42.0, steam + random.uniform(-0.4, 0.4)))
+        # 1. Temperature Control Group
+        ttk.Label(slider_frame, text="Column Temperature (°C):").pack(anchor=tk.W, pady=(5, 2))
+        self.temp_var = tk.DoubleVar(value=80.0)
+        self.temp_scale = ttk.Scale(slider_frame, from_=50.0, to_=150.0, variable=self.temp_var, 
+                                    orient=tk.HORIZONTAL, command=self.update_indicators)
+        self.temp_scale.pack(fill=tk.X)
+        
+        self.temp_lbl = ttk.Label(slider_frame, text="Current: 80.0 °C")
+        self.temp_lbl.pack(anchor=tk.E, pady=(2, 15))
 
-    # --- REAL-TIME AI MODEL INFERENCE ---
-    live_telemetry = [[temp, pressure, steam]]
-    ai_prediction = ml_model.predict(live_telemetry)[0]
+        # 2. Controller Demand Output Group
+        ttk.Label(slider_frame, text="Controller Demand Output (%):").pack(anchor=tk.W, pady=(5, 2))
+        self.pid_var = tk.DoubleVar(value=50.0)
+        self.pid_scale = ttk.Scale(slider_frame, from_=0.0, to_=100.0, variable=self.pid_var, 
+                                   orient=tk.HORIZONTAL, command=self.update_indicators)
+        self.pid_scale.pack(fill=tk.X)
+        
+        self.pid_lbl = ttk.Label(slider_frame, text="Demand: 50.0 %")
+        self.pid_lbl.pack(anchor=tk.E, pady=(2, 15))
 
-    # --- SAFETY INSTRUMENTED SYSTEM (SIS) INTERLOCK ---
-    if temp >= 120.0:
-        sis_label.config(text="🚨 SIS INTERLOCK TRIPPED\nEMERGENCY SHUTDOWN ACTIVE", bg="#e74c3c", fg="white")
-        temp, pressure, steam = 65.0, 1.0, 0.0
-        valve_fault = False
-        fault_btn.config(text="Inject Steam Valve Fault", state="normal", bg="#f39c12")
-    elif ai_prediction == 1:
-        sis_label.config(text="⚠️ AI PREDICTIVE ALERT: ANOMALOUS STICTION\nSIS TRIP PROBABLE WITHIN 15 MINUTES", bg="#d35400", fg="white")
-    else:
-        sis_label.config(text="SYSTEM STATUS: NORMAL\nBPCS PID LOOPS STABLE", bg="#27ae60", fg="white")
+        # 3. Physical Valve Feedback Group
+        ttk.Label(slider_frame, text="Physical Valve Feedback (%):").pack(anchor=tk.W, pady=(5, 2))
+        self.valve_var = tk.DoubleVar(value=50.0)
+        self.valve_scale = ttk.Scale(slider_frame, from_=0.0, to_=100.0, variable=self.valve_var, 
+                                     orient=tk.HORIZONTAL, command=self.update_indicators)
+        self.valve_scale.pack(fill=tk.X)
+        
+        self.valve_lbl = ttk.Label(slider_frame, text="Feedback: 50.0 %")
+        self.valve_lbl.pack(anchor=tk.E, pady=(2, 10))
+        
+        # Separator line before delta metric
+        ttk.Label(slider_frame, text="----------------------------------------", foreground="#444444").pack(anchor=tk.E)
+        
+        # Delta Deviation Readout
+        self.stiction_lbl = ttk.Label(slider_frame, text="Valve Delta: 0.0 %", font=("Arial", 11, "bold"))
+        self.stiction_lbl.pack(anchor=tk.E, pady=(5, 0))
 
-    temp_var.set(f"{temp:.1f} °C")
-    temp_progress['value'] = temp
-    press_var.set(f"{pressure:.2f} Bar")
-    steam_var.set(f"{steam:.1f} %")
-    
-    root.after(100, update_plant)
+        # --- INDUSTRIAL MONITORING INDICATORS ---
+        status_frame = tk.LabelFrame(main_frame, text=" System Status & Safety Alarms ", 
+                                     bg="#1e1e1e", fg="#00ff00", font=("Arial", 10, "bold"), padx=15, pady=15)
+        status_frame.grid(row=0, column=1, sticky="nsew", padx=10)
 
-# --- GUI WIDGET DESIGN ---
-tk.Label(root, text="MAIN OPERATIONS DESK: REFINERY COLUMN 4", font=("Arial", 12, "bold"), fg="#ffffff", bg="#2b2b2b").pack(pady=15)
-sis_label = tk.Label(root, text="SYSTEM STATUS: INITIALIZING", font=("Arial", 10, "bold"), width=50, height=2, bd=2, relief="sunken")
-sis_label.pack(pady=5)
+        # Interlock LED Display
+        self.sis_led = tk.Label(status_frame, text="SIS INTERLOCK: NORMAL", 
+                                bg="#008000", fg="#ffffff", font=("Arial", 11, "bold"), width=25, height=2)
+        self.sis_led.pack(pady=15)
 
-frame = tk.Frame(root, bg="#333333", padx=15, pady=15, bd=1, relief="solid")
-frame.pack(pady=10, fill="x", padx=30)
+        # AI Anomaly Warning Box
+        self.ai_box = tk.Label(status_frame, text="AI PREDICTIVE MAINTENANCE\nSignatures Nominal\nNo Anomalies Found", 
+                               bg="#2d2d2d", fg="#ffffff", font=("Arial", 10), width=25, height=5, relief=tk.SUNKEN)
+        self.ai_box.pack(pady=15)
 
-tk.Label(frame, text="Column Temperature:", font=("Arial", 10), fg="white", bg="#333333").grid(row=0, column=0, sticky="w")
-temp_var = tk.StringVar()
-tk.Label(frame, textvariable=temp_var, font=("Arial", 11, "bold"), fg="#5dade2", bg="#333333").grid(row=0, column=1, sticky="e", padx=20)
-temp_progress = ttk.Progressbar(frame, orient="horizontal", length=400, mode="determinate", maximum=140)
-temp_progress.grid(row=1, column=0, columnspan=2, pady=10)
+        # Initial calculation update
+        self.update_indicators()
 
-metrics_frame = tk.Frame(root, bg="#2b2b2b")
-metrics_frame.pack(pady=5)
-tk.Label(metrics_frame, text="Pressure: ", font=("Arial", 10), fg="white", bg="#2b2b2b").grid(row=0, column=0)
-press_var = tk.StringVar()
-tk.Label(metrics_frame, textvariable=press_var, font=("Arial", 10, "bold"), fg="#2ecc71", bg="#2b2b2b").grid(row=0, column=1, padx=10)
-tk.Label(metrics_frame, text="Steam Flow: ", font=("Arial", 10), fg="white", bg="#2b2b2b").grid(row=0, column=2, padx=10)
-steam_var = tk.StringVar()
-tk.Label(metrics_frame, textvariable=steam_var, font=("Arial", 10, "bold"), fg="#f1c40f", bg="#2b2b2b").grid(row=0, column=3)
+    def update_indicators(self, *args):
+        # Read active slider values
+        current_temp = self.temp_var.get()
+        pid_demand = self.pid_var.get()
+        valve_feedback = self.valve_var.get()
+        valve_delta = abs(pid_demand - valve_feedback)
 
-fault_btn = tk.Button(root, text="Inject Steam Valve Fault", font=("Arial", 11, "bold"), bg="#f39c12", fg="white", width=25, command=trigger_fault)
-fault_btn.pack(pady=15)
+        # Update text labels cleanly next to their respective loops
+        self.temp_lbl.config(text=f"Current: {current_temp:.1f} °C")
+        self.pid_lbl.config(text=f"Demand: {pid_demand:.1f} %")
+        self.valve_lbl.config(text=f"Feedback: {valve_feedback:.1f} %")
+        self.stiction_lbl.config(text=f"Valve Delta: {valve_delta:.1f} %")
 
-root.after(100, update_plant)
-root.mainloop()
+        # 1. Functional Safety Logic (OT Interlock Layer)
+        if current_temp >= 120.0:
+            self.sis_led.config(text="SIS TRIP: ACTIVE (OVERTEMP)", bg="#ff0000")
+            # Emergency automated actions
+            self.pid_var.set(0.0)
+            self.valve_var.set(0.0)
+        else:
+            self.sis_led.config(text="SIS INTERLOCK: NORMAL", bg="#008000")
+
+        # 2. Predictive Analytical Insights (IT Layer)
+        if valve_delta > 15.0 and current_temp > 100.0:
+            self.ai_box.config(text="⚠️ ANOMALY DETECTED!\nValve Stiction / Drift\nEstimated Trip: < 15 Mins", 
+                               bg="#ff9900", fg="#000000")
+        elif valve_delta > 15.0:
+            self.ai_box.config(text="⚠️ WARNING\nHigh Valve Stiction Detected\nMonitor Reboiler Loops", 
+                               bg="#ffff00", fg="#000000")
+        else:
+            self.ai_box.config(text="AI PREDICTIVE MAINTENANCE\nSignatures Nominal\nNo Anomalies Found", 
+                               bg="#2d2d2d", fg="#ffffff")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = DistillationHMI(root)
+    root.mainloop()
